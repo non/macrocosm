@@ -23,10 +23,10 @@ object Macrocosm {
    */
   def assert1(cond: Boolean): Unit = macro assert1Impl
 
-  def assert1Impl(c: Context)(cond: c.Expr[Boolean]) = {
+  def assert1Impl(c: Context)(cond: c.Expr[Boolean]):c.Expr[Unit] = {
     import c.universe._
     val condCode = c.Expr[String](Literal(Constant(show(cond.tree))))
-    c.reify {
+    reify {
       assert(cond.splice, condCode.splice)
       ()
     }
@@ -38,26 +38,26 @@ object Macrocosm {
    * ```
    */
   def log[A](a: A): A = macro logImpl[A]
-
+  
   def logImpl[A: c.TypeTag](c: Context)(a: c.Expr[A]): c.Expr[A] = {
     import c.universe._
     val aCode = c.Expr[String](Literal(Constant(show(a.tree))))
-    c.reify {
+    reify {
       val result = a.splice
       println(aCode.splice + " = " + result)
       result
     }
   }
-
+  
   implicit def enrichStringContext(sc: StringContext) = new RichStringContext(sc)
-
+  
   class RichStringContext(sc: StringContext) {
     // This is how a non-macro version would be implemented.
     // def b() = {
     //   val s = sc.parts.mkString
     //   parseBinary(s).getOrElse(sys.error("invalid binary literal: " + s))
     // }
-
+  
     /** Binary literal integer
      *
      *  {{{
@@ -85,9 +85,9 @@ object Macrocosm {
       }
       sum
     }
-
+  
     import c.universe._
-
+  
     val i = c.prefix.tree match {
       // e.g: `c.g.r.m.Macrocosm.enrichStringContext(scala.StringContext.apply("1111"))`
       case Apply(_, List(Apply(_, List(Literal(Constant(const: String)))))) =>
@@ -115,17 +115,17 @@ object Macrocosm {
    * }}}
    */
   def regex(s: String): scala.util.matching.Regex = macro regexImpl
-
+  
   def regexImpl(c: Context)(s: c.Expr[String]): c.Expr[scala.util.matching.Regex] = {
     import c.universe._
-
+  
     s.tree match {
       case Literal(Constant(string: String)) =>
         string.r // just to check
-        c.reify(s.splice.r)
+        reify(s.splice.r)
     }
   }
-
+  
   /**
    * Trace execution on `c`, by printing the values of sub-expressions
    * to standard out.
@@ -134,20 +134,20 @@ object Macrocosm {
 
   def traceImpl[A: c.TypeTag](c: Context)(expr: c.Expr[A]): c.Expr[A] = {
     import c.universe._
-
+  
     object tracingTransformer extends Transformer {
       def insertTrace(t: Tree): Tree = {
         val expr     = c.Expr[Any](t)
         val exprCode = c.Expr[String](Literal(Constant(show(t))))
         val exprTpe  = c.Expr[String](Literal(Constant(show(t.tpe))))
-
-        (c.reify {
+  
+        (reify {
           val result = expr.splice
           println("%s = %s: %s".format(exprCode.splice, result, exprTpe.splice))
           result
         }).tree
       }
-
+  
       override def transform(tree: Tree): Tree = {
         tree match {
           case Apply(_, _)               =>
@@ -171,77 +171,77 @@ object Macrocosm {
     c.Expr[A](c.resetAllAttrs(t))
   }
 
-  implicit def infixNumericOps[T](x: T)(implicit num: Numeric[T]): NumericOps[T] = new NumericOps[T](x)
-
-  class NumericOps[T](lhs: T)(implicit T: Numeric[T]) {
-    def +(rhs: T)  = macro NumericOps.+[T]
-    def -(rhs: T)  = macro NumericOps.-[T]
-    def *(rhs: T)  = macro NumericOps.*[T]
-    def unary_-()  = macro NumericOps.unary_-[T]
-    def abs()      = macro NumericOps.abs[T]
-    def signum()   = macro NumericOps.signum[T]
-    def toInt()    = macro NumericOps.toInt[T]
-    def toLong()   = macro NumericOps.toLong[T]
-    def toDouble() = macro NumericOps.toDouble[T]
-  }
-
-  object NumericOps {
-    def +[T](c: Context)(rhs: c.Expr[T]) = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.plus(lhs.splice, rhs.splice))
-    }
-
-    def -[T](c: Context)(rhs: c.Expr[T]) = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.minus(lhs.splice, rhs.splice))
-    }
-
-    def *[T](c: Context)(rhs: c.Expr[T]) = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.times(lhs.splice, rhs.splice))
-    }
-
-    def unary_-[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.negate(lhs.splice))
-    }
-
-    def abs[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.abs(lhs.splice))
-    }
-
-    def signum[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.signum(lhs.splice))
-    }
-
-    def toInt[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.toInt(lhs.splice))
-    }
-
-    def toLong[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.toLong(lhs.splice))
-    }
-
-    def toDouble[T](c: Context)() = {
-      val (numeric, lhs) = extractNumericAndLhs[T](c)
-      c.reify(numeric.splice.toDouble(lhs.splice))
-    }
-
-    def extractNumericAndLhs[T](c: Context): (c.Expr[Numeric[T]], c.Expr[T]) = {
-      import c.universe._
-
-      c.prefix.tree match {
-        case Apply(Apply(TypeApply(_ /*infixNumericOps*/, _), List(lhs)), List(numeric)) =>
-          (c.Expr(numeric), c.Expr(lhs))
-        case t =>
-          c.abort(c.enclosingPosition, "unexpected tree: " + show(t))
-      }
-    }
-  }
+  //implicit def infixNumericOps[T](x: T)(implicit num: Numeric[T]): NumericOps[T] = new NumericOps[T](x)
+  //
+  //class NumericOps[T](lhs: T)(implicit T: Numeric[T]) {
+  //  def +(rhs: T)  = macro NumericOps.+[T]
+  //  def -(rhs: T)  = macro NumericOps.-[T]
+  //  def *(rhs: T)  = macro NumericOps.*[T]
+  //  def unary_-()  = macro NumericOps.unary_-[T]
+  //  def abs()      = macro NumericOps.abs[T]
+  //  def signum()   = macro NumericOps.signum[T]
+  //  def toInt()    = macro NumericOps.toInt[T]
+  //  def toLong()   = macro NumericOps.toLong[T]
+  //  def toDouble() = macro NumericOps.toDouble[T]
+  //}
+  //
+  //object NumericOps {
+  //  def +[T](c: Context)(rhs: c.Expr[T]) = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.plus(lhs.splice, rhs.splice))
+  //  }
+  //
+  //  def -[T](c: Context)(rhs: c.Expr[T]) = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.minus(lhs.splice, rhs.splice))
+  //  }
+  //
+  //  def *[T](c: Context)(rhs: c.Expr[T]) = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.times(lhs.splice, rhs.splice))
+  //  }
+  //
+  //  def unary_-[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.negate(lhs.splice))
+  //  }
+  //
+  //  def abs[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.abs(lhs.splice))
+  //  }
+  //
+  //  def signum[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.signum(lhs.splice))
+  //  }
+  //
+  //  def toInt[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.toInt(lhs.splice))
+  //  }
+  //
+  //  def toLong[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.toLong(lhs.splice))
+  //  }
+  //
+  //  def toDouble[T](c: Context)() = {
+  //    val (numeric, lhs) = extractNumericAndLhs[T](c)
+  //    reify(numeric.splice.toDouble(lhs.splice))
+  //  }
+  //
+  //  def extractNumericAndLhs[T](c: Context): (c.Expr[Numeric[T]], c.Expr[T]) = {
+  //    import c.universe._
+  //
+  //    c.prefix.tree match {
+  //      case Apply(Apply(TypeApply(_ /*infixNumericOps*/, _), List(lhs)), List(numeric)) =>
+  //        (c.Expr(numeric), c.Expr(lhs))
+  //      case t =>
+  //        c.abort(c.enclosingPosition, "unexpected tree: " + show(t))
+  //    }
+  //  }
+  //}
 
   /**
    * Converts:
@@ -258,14 +258,14 @@ object Macrocosm {
   def iteratorForeach[A](iterator: Iterator[A])
                         (act: A => Unit): Unit =
     macro iteratorForeachImpl[A]
-
+  
   def iteratorForeachImpl[A: c.TypeTag]
                          (c: Context)
                          (iterator: c.Expr[Iterator[A]])
                          (act: c.Expr[A => Unit]): c.Expr[Unit] = {
     import c.universe._
-
-    val e = c.reify {
+  
+    val e = reify {
       val i = iterator.splice
       while(i.hasNext) {
         val elem = i.next()
@@ -299,14 +299,14 @@ object Macrocosm {
    */
   def arrayForeachWithIndex[A](array: Array[A])(f: (A, Int) => Unit): Unit =
     macro arrayForeachWithIndexImpl[A]
-
+  
   def arrayForeachWithIndexImpl[A: c.TypeTag]
                                (c: Context)
                                (array: c.Expr[Array[A]])
                                (f: c.Expr[(A, Int) => Unit]): c.Expr[Unit] = {
     import c.universe._
-
-    val expr = c.reify {
+  
+    val expr = reify {
       val a = array.splice
       var i = 0
       val len = a.length
@@ -316,7 +316,7 @@ object Macrocosm {
         i += 1
       }
     }
-
+  
     c.inlineAndReset(expr)
   }
 
@@ -339,15 +339,15 @@ object Macrocosm {
   // Suggested by Rex Kerr here: http://www.scala-lang.org/node/9809
   def cfor[A](zero: A)(okay: A => Boolean, next: A => A)(act: A => Unit): Unit =
     macro cforImpl[A]
-
+  
   def cforImpl[A: c.TypeTag]
               (c: Context)
               (zero: c.Expr[A])
               (okay: c.Expr[A => Boolean], next: c.Expr[A => A])
               (act: c.Expr[A => Unit]): c.Expr[Unit] = {
     import c.universe._
-
-    val t = c.reify {
+  
+    val t = c.universe.reify {
       var elem: A = zero.splice
       while(okay.splice(elem)) {
         act.splice(elem)
@@ -358,7 +358,7 @@ object Macrocosm {
   }
 
   // //case class Lens[A, B](getter: A => B, setter: (A, B) => A)
-
+  
   /**
    * Automatic lens generation.
    *
@@ -371,16 +371,16 @@ object Macrocosm {
    * }}}
    */
   def lens[T] = new Lenser[T]
-
+  
   class Lenser[T] extends Dynamic {
     def selectDynamic(propName: String)  = macro Lenser.selectDynamic[T]
     def applyDynamic(propName: String)() = macro Lenser.applyDynamic[T]
   }
-
+  
   object Lenser {
     def selectDynamic[T: c.TypeTag](c: Context)(propName: c.Expr[String]) =
       applyDynamic[T](c)(propName)()
-
+  
     def applyDynamic[T: c.TypeTag]
                     (c: Context)
                     (propName: c.Expr[String])
@@ -391,7 +391,7 @@ object Macrocosm {
       def Tuple2Module = Select(Ident(newTermName("scala")), newTermName("Tuple2"))
       def mkParam(name: String, tpe: Type) =
         ValDef(Modifiers(Flag.PARAM), newTermName(name), TypeTree(tpe), EmptyTree)
-
+  
       import treeBuild._
       //println(showRaw(_this))
       val t = (c.prefix.tree, propName.tree) match {
@@ -429,10 +429,10 @@ object Macrocosm {
 
   class Util[C <: Context](val c: C) {
     import c.universe._
-
+  
     def inlineAndReset[T](expr: c.Expr[T]): c.Expr[T] =
       c.Expr[T](c resetAllAttrs inlineApplyRecursive(expr.tree))
-
+  
     /**
      * Reursively transforms `tree`, inlining direct function
      * application.
@@ -448,7 +448,7 @@ object Macrocosm {
      */
     def inlineApplyRecursive(tree: Tree): Tree = {
       val ApplyName = newTermName("apply")
-
+  
       object inliner extends Transformer {
         override def transform(tree: Tree): Tree = {
           tree match {
